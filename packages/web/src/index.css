@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 14px;
+}
+
+body {
+  @apply bg-dark-950 text-dark-100 min-h-screen;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-dark-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-dark-700 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-dark-600;
+}
+
+/* 卡片样式 */
+.card {
+  @apply bg-dark-900 border border-dark-700 rounded-xl p-6;
+}
+
+/* 按钮样式 */
+.btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
+}
+
+.btn-primary {
+  @apply bg-accent text-white hover:bg-accent-dark;
+}
+
+.btn-secondary {
+  @apply bg-dark-700 text-dark-200 hover:bg-dark-600;
+}
+
+/* 输入框样式 */
+.input {
+  @apply w-full px-4 py-2 bg-dark-800 border border-dark-600 rounded-lg text-dark-100 focus:outline-none focus:border-accent transition-colors;
+}
+
+/* 数字高亮 */
+.stat-number {
+  @apply text-3xl font-bold bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent;
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* 热力图颜色 */
+.heatmap-0 { @apply bg-dark-800; }
+.heatmap-1 { @apply bg-accent/20; }
+.heatmap-2 { @apply bg-accent/40; }
+.heatmap-3 { @apply bg-accent/60; }
+.heatmap-4 { @apply bg-accent/80; }
+.heatmap-5 { @apply bg-accent; }

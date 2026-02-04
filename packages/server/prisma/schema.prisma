@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id         Int       @id @default(autoincrement())
+  uuid       String    @unique @default(uuid()) // API Key，用于上报
+  username   String    @unique                  // 登录用户名
+  password   String                             // 密码（加密存储）
+  isAdmin    Boolean   @default(false)          // 是否管理员
+  isDisabled Boolean   @default(false)          // 是否禁用
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // 用户独立配置
+  config UserConfig?
+
+  // 关联数据
+  codeChanges   CodeChange[]
+  webActivities WebActivity[]
+  workHours     WorkHour[]
+
+  @@index([uuid])
+}
+
+// 用户独立配置
+model UserConfig {
+  id               Int    @id @default(autoincrement())
+  userId           Int    @unique
+  user             User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 代码监控配置
+  watchPaths       String @default("[]")  // 监控目录列表
+  pollInterval     Int    @default(300)
+  excludePatterns  String @default("[\"node_modules\",\".git\",\"dist\",\"build\",\".next\",\"coverage\"]")
+  // 网站跟踪配置
+  domainWhitelist  String @default("[]")
+  domainBlacklist  String @default("[]")
+  sanitizePatterns String @default("[]")
+  // 工作时间配置
+  workTimeStart    String @default("09:00")
+  workTimeEnd      String @default("18:00")
+  lunchStart       String @default("12:00")
+  lunchEnd         String @default("14:00")
+}
+
+// 代码变更记录
+model CodeChange {
+  id           Int      @id @default(autoincrement())
+  userId       Int                                // 关联用户
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoPath     String                             // 仓库路径
+  repoName     String                             // 仓库名称
+  branch       String                             // 分支
+  linesAdded   Int                                // 新增行数
+  linesDeleted Int                                // 删除行数
+  filesChanged Int                                // 变更文件数
+  isCommitted  Boolean                            // 是否已提交
+  commitHash   String?                            // commit hash (如已提交)
+  recordedAt   DateTime                           // 记录时间
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([repoName])
+  @@index([recordedAt])
+}
+
+// 网站活动记录
+model WebActivity {
+  id         Int      @id @default(autoincrement())
+  userId     Int                                  // 关联用户
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url        String                               // 页面URL
+  domain     String                               // 域名
+  title      String                               // 页面标题
+  eventType  String                               // 事件类型: pageview/click/scroll/input/focus
+  duration   Int?                                 // 停留时长(秒)
+  recordedAt DateTime                             // 记录时间
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([domain])
+  @@index([recordedAt])
+}
+
+// 工作时段汇总 (按小时聚合)
+model WorkHour {
+  id            Int      @id @default(autoincrement())
+  userId        Int                                // 关联用户
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          String                             // 日期 YYYY-MM-DD
+  hour          Int                                // 小时 0-23
+  hasActivity   Boolean                            // 是否有活动
+  codeChanges   Int                                // 代码变更次数
+  webActivities Int                                // 网站活动次数
+  isOvertime    Boolean                            // 是否加班
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, date, hour])
+  @@index([userId])
+  @@index([date])
+}
+
+// 全局配置表（保留用于系统级配置）
+model Config {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String
+}

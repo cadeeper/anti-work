@@ -1,0 +1,288 @@
+import { simpleGit, SimpleGit } from 'simple-git';
+import { glob } from 'glob';
+import { existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { basename, join, dirname } from 'path';
+import { getConfig } from './config.js';
+import { createHash } from 'crypto';
+import os from 'os';
+
+interface RepoChange {
+  repoPath: string;
+  repoName: string;
+  branch: string;
+  linesAdded: number;
+  linesDeleted: number;
+  filesChanged: number;
+  isCommitted: boolean;
+  commitHash?: string;
+}
+
+// 状态文件路径
+const STATE_FILE = join(os.homedir(), '.anti-work', 'scanner-state.json');
+
+interface ScannerState {
+  // 每个仓库上次扫描到的最新 commit hash
+  lastCommitHashes: Record<string, string>;
+  // 每个仓库上次的 diff hash（用于检测未提交变更是否真的变化了）
+  lastDiffHashes: Record<string, string>;
+}
+
+/**
+ * 加载扫描状态
+ */
+function loadState(): ScannerState {
+  try {
+    if (existsSync(STATE_FILE)) {
+      const content = readFileSync(STATE_FILE, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch {
+    // 忽略错误
+  }
+  return { lastCommitHashes: {}, lastDiffHashes: {} };
+}
+
+/**
+ * 保存扫描状态
+ */
+function saveState(state: ScannerState): void {
+  try {
+    const dir = dirname(STATE_FILE);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  } catch {
+    // 忽略错误
+  }
+}
+
+/**
+ * 计算字符串的 hash
+ */
+function hashString(str: string): string {
+  return createHash('md5').update(str).digest('hex').slice(0, 16);
+}
+
+/**
+ * 查找目录下的所有 Git 仓库
+ */
+async function findGitRepos(basePath: string): Promise<string[]> {
+  const repos: string[] = [];
+
+  // 检查当前目录是否是 Git 仓库
+  if (existsSync(join(basePath, '.git'))) {
+    repos.push(basePath);
+  }
+
+  // 查找子目录中的 Git 仓库 (只查一层)
+  const pattern = join(basePath, '*', '.git');
+  const gitDirs = await glob(pattern, { dot: true });
+
+  for (const gitDir of gitDirs) {
+    const repoPath = gitDir.replace(/[/\\]\.git$/, '');
+    if (!repos.includes(repoPath)) {
+      repos.push(repoPath);
+    }
+  }
+
+  return repos;
+}
+
+/**
+ * 获取仓库的未提交变更统计（只有当 diff 内容变化时才返回）
+ */
+async function getUncommittedChanges(
+  git: SimpleGit,
+  repoPath: string,
+  state: ScannerState
+): Promise<RepoChange | null> {
+  try {
+    const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
+
+    // 获取当前 diff 的原始输出
+    const diffOutput = await git.diff(['HEAD', '--stat']);
+
+    if (!diffOutput.trim()) {
+      // 没有未提交变更，清除上次的 diff hash
+      delete state.lastDiffHashes[repoPath];
+      return null;
+    }
+
+    // 计算当前 diff 的 hash
+    const currentDiffHash = hashString(diffOutput);
+    const lastDiffHash = state.lastDiffHashes[repoPath];
+
+    // 如果 diff 内容没有变化，不上报
+    if (currentDiffHash === lastDiffHash) {
+      return null;
+    }
+
+    // diff 有变化，解析统计信息
+    const diffSummary = await git.diffSummary(['HEAD']);
+
+    // 更新状态
+    state.lastDiffHashes[repoPath] = currentDiffHash;
+
+    return {
+      repoPath,
+      repoName: basename(repoPath),
+      branch: branch.trim(),
+      linesAdded: diffSummary.insertions,
+      linesDeleted: diffSummary.deletions,
+      filesChanged: diffSummary.files.length,
+      isCommitted: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 获取新的 commit 记录（只返回上次扫描后的新 commit）
+ */
+async function getNewCommits(
+  git: SimpleGit,
+  repoPath: string,
+  state: ScannerState
+): Promise<RepoChange[]> {
+  const changes: RepoChange[] = [];
+
+  try {
+    const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
+    const lastHash = state.lastCommitHashes[repoPath];
+
+    // 获取 commit 列表
+    let logOptions: Record<string, unknown>;
+
+    if (lastHash) {
+      // 获取 lastHash 之后的所有 commit
+      try {
+        // 检查 lastHash 是否还存在
+        await git.show([lastHash, '--format=%H', '--quiet']);
+        logOptions = { from: lastHash };
+      } catch {
+        // lastHash 不存在（可能被 rebase 或删除），获取最近 24 小时的 commit
+        logOptions = { '--since': new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() };
+      }
+    } else {
+      // 首次扫描，只获取最近 1 小时的 commit
+      logOptions = { '--since': new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    }
+
+    const log = await git.log(logOptions);
+
+    // 按时间顺序处理（旧的先处理）
+    const commits = [...log.all].reverse();
+
+    for (const commit of commits) {
+      try {
+        const show = await git.show([commit.hash, '--stat', '--format=']);
+        const stats = parseGitStats(show);
+
+        if (stats.filesChanged > 0) {
+          changes.push({
+            repoPath,
+            repoName: basename(repoPath),
+            branch: branch.trim(),
+            linesAdded: stats.linesAdded,
+            linesDeleted: stats.linesDeleted,
+            filesChanged: stats.filesChanged,
+            isCommitted: true,
+            commitHash: commit.hash,
+          });
+        }
+
+        // 更新最新的 commit hash
+        state.lastCommitHashes[repoPath] = commit.hash;
+      } catch {
+        // 忽略单个 commit 的错误
+      }
+    }
+  } catch {
+    // 忽略错误
+  }
+
+  return changes;
+}
+
+/**
+ * 解析 git show --stat 输出
+ */
+function parseGitStats(output: string): {
+  linesAdded: number;
+  linesDeleted: number;
+  filesChanged: number;
+} {
+  const lines = output.trim().split('\n');
+  const summaryLine = lines[lines.length - 1];
+
+  const match = summaryLine.match(
+    /(\d+)\s+files?\s+changed(?:,\s+(\d+)\s+insertions?\(\+\))?(?:,\s+(\d+)\s+deletions?\(-\))?/
+  );
+
+  if (match) {
+    return {
+      filesChanged: parseInt(match[1]) || 0,
+      linesAdded: parseInt(match[2]) || 0,
+      linesDeleted: parseInt(match[3]) || 0,
+    };
+  }
+
+  return { linesAdded: 0, linesDeleted: 0, filesChanged: 0 };
+}
+
+/**
+ * 扫描所有仓库
+ */
+export async function scanRepositories(): Promise<RepoChange[]> {
+  const config = getConfig();
+  const allChanges: RepoChange[] = [];
+  const state = loadState();
+
+  for (const watchPath of config.watchPaths) {
+    if (!existsSync(watchPath)) {
+      continue;
+    }
+
+    const stat = statSync(watchPath);
+    if (!stat.isDirectory()) {
+      continue;
+    }
+
+    try {
+      const repos = await findGitRepos(watchPath);
+
+      for (const repoPath of repos) {
+        // 检查是否在排除列表中
+        const repoName = basename(repoPath);
+        if (config.excludePatterns.some((p) => repoName.includes(p) || repoPath.includes(p))) {
+          continue;
+        }
+
+        try {
+          const git = simpleGit(repoPath);
+
+          // 获取新的 commits
+          const commits = await getNewCommits(git, repoPath, state);
+          allChanges.push(...commits);
+
+          // 获取未提交变更（只有内容变化时才返回）
+          const uncommitted = await getUncommittedChanges(git, repoPath, state);
+          if (uncommitted) {
+            allChanges.push(uncommitted);
+          }
+        } catch {
+          // 忽略单个仓库的错误
+        }
+      }
+    } catch {
+      // 忽略错误
+    }
+  }
+
+  // 保存状态
+  saveState(state);
+
+  return allChanges;
+}

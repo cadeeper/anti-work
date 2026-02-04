@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  anti-work:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: anti-work
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Shanghai
+      - DATABASE_URL=mysql://${MYSQL_USER:-antiwork}:${MYSQL_PASSWORD:-antiwork}@mysql:3306/${MYSQL_DATABASE:-antiwork}
+      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: anti-work-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-antiwork}
+      - MYSQL_USER=${MYSQL_USER:-antiwork}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-antiwork}
+      - TZ=Asia/Shanghai
+    command: --default-time-zone='+08:00'
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql-data:

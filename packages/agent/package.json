@@ -1,0 +1,34 @@
+{
+  "name": "@anti-work/agent",
+  "version": "1.0.0",
+  "description": "Anti-Work Local Agent - 本地代码监控客户端",
+  "main": "dist/index.js",
+  "bin": {
+    "anti-work-agent": "./dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "install:macos": "chmod +x scripts/*.sh && ./scripts/install-macos.sh",
+    "install:linux": "chmod +x scripts/*.sh && ./scripts/install-linux.sh",
+    "uninstall:macos": "./scripts/uninstall-macos.sh",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm --dts",
+    "start": "node dist/index.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "simple-git": "^3.22.0",
+    "node-cron": "^3.0.3",
+    "glob": "^10.3.10",
+    "commander": "^12.0.0",
+    "conf": "^12.0.0",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/node-cron": "^3.0.11",
+    "tsup": "^8.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}

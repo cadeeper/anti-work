@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  anti-work:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.sqlite
+    container_name: anti-work
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - anti-work-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/anti-work.db
+      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
+
+volumes:
+  anti-work-data:

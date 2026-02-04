@@ -1,0 +1,81 @@
+# =============================================================================
+# Stage 1: Dependencies - 解析和缓存依赖
+# =============================================================================
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+# 安装构建依赖
+RUN apk add --no-cache openssl openssl-dev
+
+# 启用 pnpm
+RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
+
+# 复制依赖配置文件
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/server/package.json ./packages/server/
+COPY packages/web/package.json ./packages/web/
+
+# 预取依赖（利用 Docker 缓存层）
+RUN pnpm fetch
+
+# =============================================================================
+# Stage 2: Builder - 构建应用 (包括 Prisma Client 生成)
+# =============================================================================
+FROM deps AS builder
+
+# 安装所有依赖
+RUN pnpm install --offline --frozen-lockfile
+
+# 复制源代码
+COPY . .
+
+# 使用 MySQL schema
+COPY packages/server/prisma/schema.mysql.prisma packages/server/prisma/schema.prisma
+
+# 在构建阶段生成 Prisma Client
+RUN cd packages/server && pnpm exec prisma generate
+
+# 构建应用
+RUN pnpm build
+
+# =============================================================================
+# Stage 3: Production - 生产镜像
+# =============================================================================
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# 只安装运行时依赖
+RUN apk add --no-cache openssl
+
+# 设置非 root 用户（安全最佳实践）
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 appuser
+
+# 从 builder 复制 node_modules（包含 Prisma Client + prisma CLI 用于迁移）
+COPY --from=builder --chown=appuser:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=appuser:nodejs /app/packages/server/node_modules ./packages/server/node_modules
+
+# 复制构建产物
+COPY --from=builder --chown=appuser:nodejs /app/packages/server/dist ./packages/server/dist
+COPY --from=builder --chown=appuser:nodejs /app/packages/server/prisma ./packages/server/prisma
+COPY --from=builder --chown=appuser:nodejs /app/packages/server/package.json ./packages/server/
+COPY --from=builder --chown=appuser:nodejs /app/packages/web/dist ./packages/web/dist
+COPY --from=builder --chown=appuser:nodejs /app/config ./config
+
+# 复制 entrypoint 脚本
+COPY --chown=appuser:nodejs docker/entrypoint.sh ./packages/server/entrypoint.sh
+RUN chmod +x ./packages/server/entrypoint.sh
+
+# 环境变量
+ENV NODE_ENV=production
+ENV NODE_CONFIG_DIR=/app/config
+
+# 使用非 root 用户运行
+USER appuser
+
+EXPOSE 3000
+
+WORKDIR /app/packages/server
+CMD ["./entrypoint.sh"]

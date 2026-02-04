@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id         Int       @id @default(autoincrement())
+  uuid       String    @unique @default(uuid()) @db.VarChar(36)
+  username   String    @unique @db.VarChar(100)
+  password   String    @db.VarChar(200)
+  isAdmin    Boolean   @default(false)
+  isDisabled Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  config UserConfig?
+
+  codeChanges   CodeChange[]
+  webActivities WebActivity[]
+  workHours     WorkHour[]
+
+  @@index([uuid])
+}
+
+// 用户独立配置
+model UserConfig {
+  id               Int    @id @default(autoincrement())
+  userId           Int    @unique
+  user             User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  watchPaths       String @default("[]") @db.VarChar(2000)
+  pollInterval     Int    @default(300)
+  excludePatterns  String @default("[\"node_modules\",\".git\",\"dist\",\"build\",\".next\",\"coverage\"]") @db.VarChar(2000)
+  domainWhitelist  String @default("[]") @db.VarChar(2000)
+  domainBlacklist  String @default("[]") @db.VarChar(2000)
+  sanitizePatterns String @default("[]") @db.VarChar(2000)
+  workTimeStart    String @default("09:00") @db.VarChar(10)
+  workTimeEnd      String @default("18:00") @db.VarChar(10)
+  lunchStart       String @default("12:00") @db.VarChar(10)
+  lunchEnd         String @default("14:00") @db.VarChar(10)
+}
+
+// 代码变更记录
+model CodeChange {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoPath     String   @db.VarChar(500)
+  repoName     String   @db.VarChar(200)
+  branch       String   @db.VarChar(200)
+  linesAdded   Int
+  linesDeleted Int
+  filesChanged Int
+  isCommitted  Boolean
+  commitHash   String?  @db.VarChar(100)
+  recordedAt   DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([repoName])
+  @@index([recordedAt])
+}
+
+// 网站活动记录
+model WebActivity {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url        String   @db.VarChar(2000)
+  domain     String   @db.VarChar(500)
+  title      String   @db.VarChar(500)
+  eventType  String   @db.VarChar(50)
+  duration   Int?
+  recordedAt DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([domain])
+  @@index([recordedAt])
+}
+
+// 工作时段汇总 (按小时聚合)
+model WorkHour {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          String   @db.VarChar(10)
+  hour          Int
+  hasActivity   Boolean
+  codeChanges   Int
+  webActivities Int
+  isOvertime    Boolean
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, date, hour])
+  @@index([userId])
+  @@index([date])
+}
+
+// 全局配置表
+model Config {
+  id    Int    @id @default(autoincrement())
+  key   String @unique @db.VarChar(200)
+  value String @db.Text
+}

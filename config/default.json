@@ -1,0 +1,35 @@
+{
+  "server": {
+    "port": 3000,
+    "host": "0.0.0.0"
+  },
+  "jwt": {
+    "secret": "anti-work-jwt-secret-change-in-production",
+    "expiresIn": "7d"
+  },
+  "codeTracker": {
+    "enabled": true,
+    "pollInterval": 300,
+    "watchPaths": [],
+    "excludePatterns": ["node_modules", ".git", "dist", "build", ".next", "coverage"]
+  },
+  "webTracker": {
+    "enabled": true,
+    "domainWhitelist": [],
+    "domainBlacklist": [],
+    "sanitizePatterns": []
+  },
+  "workTime": {
+    "start": "09:00",
+    "end": "18:00",
+    "lunchBreak": {
+      "start": "12:00",
+      "end": "14:00"
+    },
+    "weekendIsOvertime": true
+  },
+  "auth": {
+    "enabled": false,
+    "adminPassword": ""
+  }
+}
