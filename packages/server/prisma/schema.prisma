@@ -80,6 +80,7 @@ model WebActivity {
   title      String                               // 页面标题
   eventType  String                               // 事件类型: pageview/click/scroll/input/focus
   duration   Int?                                 // 停留时长(秒)
+  count      Int      @default(1)                 // 聚合数量
   recordedAt DateTime                             // 记录时间
   createdAt  DateTime @default(now())
 

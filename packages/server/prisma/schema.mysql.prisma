@@ -75,6 +75,7 @@ model WebActivity {
   title      String   @db.VarChar(500)
   eventType  String   @db.VarChar(50)
   duration   Int?
+  count      Int      @default(1)
   recordedAt DateTime
   createdAt  DateTime @default(now())
 

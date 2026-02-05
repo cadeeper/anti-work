@@ -4,6 +4,7 @@ export interface WebActivity {
   title: string;
   eventType: 'pageview' | 'click' | 'scroll' | 'input' | 'focus';
   duration?: number;
+  count?: number;  // 聚合数量
   recordedAt: string;
 }
 

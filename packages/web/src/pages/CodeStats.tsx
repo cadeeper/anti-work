@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { fetchRepos, fetchRepoStats } from '../api';
+import dayjs from 'dayjs';
+import { fetchRepos, fetchRepoStats, fetchCodeActivities } from '../api';
 
 export default function CodeStats() {
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [days, setDays] = useState(30);
+  const [activityDateRange, setActivityDateRange] = useState({
+    start: dayjs().subtract(7, 'day').format('YYYY-MM-DD'),
+    end: dayjs().format('YYYY-MM-DD'),
+  });
+  const [activityRepoFilter, setActivityRepoFilter] = useState<string>('');
 
   const { data: repos, isLoading: reposLoading } = useQuery({
     queryKey: ['repos'],
@@ -16,6 +22,11 @@ export default function CodeStats() {
     queryKey: ['repoStats', selectedRepo, days],
     queryFn: () => fetchRepoStats(selectedRepo!, days),
     enabled: !!selectedRepo,
+  });
+
+  const { data: codeActivities } = useQuery({
+    queryKey: ['codeActivities', activityDateRange.start, activityDateRange.end, activityRepoFilter],
+    queryFn: () => fetchCodeActivities(activityDateRange.start, activityDateRange.end, activityRepoFilter || undefined),
   });
 
   if (reposLoading) {
@@ -203,6 +214,106 @@ export default function CodeStats() {
           <div className="text-center py-12 text-dark-500">
             请选择一个仓库查看详情
           </div>
+        )}
+      </div>
+
+      {/* 代码活动记录 */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">代码活动记录</h2>
+          <div className="flex gap-4">
+            <input
+              type="date"
+              value={activityDateRange.start}
+              onChange={(e) => setActivityDateRange(prev => ({ ...prev, start: e.target.value }))}
+              className="input w-36"
+            />
+            <span className="text-dark-500 self-center">至</span>
+            <input
+              type="date"
+              value={activityDateRange.end}
+              onChange={(e) => setActivityDateRange(prev => ({ ...prev, end: e.target.value }))}
+              className="input w-36"
+            />
+            <select
+              value={activityRepoFilter}
+              onChange={(e) => setActivityRepoFilter(e.target.value)}
+              className="input w-40"
+            >
+              <option value="">全部仓库</option>
+              {codeActivities?.repos.map((repo) => (
+                <option key={repo} value={repo}>{repo}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {codeActivities && codeActivities.activities.length > 0 ? (
+          <>
+            {/* 统计摘要 */}
+            <div className="grid grid-cols-4 gap-4 mb-4">
+              <div className="bg-dark-800 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-accent">{codeActivities.total}</div>
+                <div className="text-dark-500 text-xs">变更次数</div>
+              </div>
+              <div className="bg-dark-800 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-green-400">+{codeActivities.summary.totalLinesAdded}</div>
+                <div className="text-dark-500 text-xs">新增行数</div>
+              </div>
+              <div className="bg-dark-800 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-red-400">-{codeActivities.summary.totalLinesDeleted}</div>
+                <div className="text-dark-500 text-xs">删除行数</div>
+              </div>
+              <div className="bg-dark-800 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-blue-400">{codeActivities.summary.totalFilesChanged}</div>
+                <div className="text-dark-500 text-xs">文件变更</div>
+              </div>
+            </div>
+
+            {/* 活动列表 */}
+            <div className="overflow-x-auto max-h-96 overflow-y-auto">
+              <table className="w-full">
+                <thead className="sticky top-0 bg-dark-800">
+                  <tr className="border-b border-dark-700">
+                    <th className="text-left py-3 px-4 text-dark-400 font-medium">时间</th>
+                    <th className="text-left py-3 px-4 text-dark-400 font-medium">仓库</th>
+                    <th className="text-left py-3 px-4 text-dark-400 font-medium">分支</th>
+                    <th className="text-right py-3 px-4 text-dark-400 font-medium">新增</th>
+                    <th className="text-right py-3 px-4 text-dark-400 font-medium">删除</th>
+                    <th className="text-right py-3 px-4 text-dark-400 font-medium">文件</th>
+                    <th className="text-center py-3 px-4 text-dark-400 font-medium">状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {codeActivities.activities.map((activity) => (
+                    <tr key={activity.id} className="border-b border-dark-800 hover:bg-dark-800/50">
+                      <td className="py-2 px-4 text-dark-400 text-sm whitespace-nowrap">
+                        {dayjs(activity.recordedAt).format('MM-DD HH:mm:ss')}
+                      </td>
+                      <td className="py-2 px-4 text-sm font-mono">{activity.repoName}</td>
+                      <td className="py-2 px-4 text-sm text-dark-400 font-mono">{activity.branch}</td>
+                      <td className="py-2 px-4 text-sm text-green-400 text-right">+{activity.linesAdded}</td>
+                      <td className="py-2 px-4 text-sm text-red-400 text-right">-{activity.linesDeleted}</td>
+                      <td className="py-2 px-4 text-sm text-dark-400 text-right">{activity.filesChanged}</td>
+                      <td className="py-2 px-4 text-center">
+                        {activity.isCommitted ? (
+                          <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs" title={activity.commitHash}>
+                            已提交
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded text-xs">
+                            未提交
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className="text-center py-12 text-dark-500">暂无代码活动数据</div>
         )}
       </div>
     </div>

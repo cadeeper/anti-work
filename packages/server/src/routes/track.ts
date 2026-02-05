@@ -24,6 +24,7 @@ const webActivitySchema = z.object({
   title: z.string(),
   eventType: z.enum(['pageview', 'click', 'scroll', 'input', 'focus']),
   duration: z.number().int().min(0).optional(),
+  count: z.number().int().min(1).optional(),
   recordedAt: z.string().datetime().optional(),
 });
 
@@ -73,6 +74,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
       const body = webActivitySchema.parse(request.body);
       const recordedAt = body.recordedAt ? new Date(body.recordedAt) : new Date();
       const userId = request.userId!;
+      const count = body.count || 1;
 
       const webActivity = await prisma.webActivity.create({
         data: {
@@ -82,6 +84,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
           title: body.title,
           eventType: body.eventType,
           duration: body.duration,
+          count,
           recordedAt,
         },
       });
@@ -90,7 +93,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
       // pageview 带 duration 表示纯页面停留，不算有效操作
       const isPassivePageStay = body.eventType === 'pageview' && body.duration && body.duration > 0;
       if (!isPassivePageStay) {
-        await updateWorkHour(userId, recordedAt, 'web');
+        await updateWorkHour(userId, recordedAt, 'web', count);
       }
 
       return { success: true, id: webActivity.id };
@@ -111,6 +114,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
       const results = await Promise.all(
         body.activities.map(async (activity) => {
           const recordedAt = activity.recordedAt ? new Date(activity.recordedAt) : new Date();
+          const count = activity.count || 1;
           
           const webActivity = await prisma.webActivity.create({
             data: {
@@ -120,6 +124,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
               title: activity.title,
               eventType: activity.eventType,
               duration: activity.duration,
+              count,
               recordedAt,
             },
           });
@@ -127,7 +132,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
           // pageview 带 duration 表示纯页面停留，不算有效操作
           const isPassivePageStay = activity.eventType === 'pageview' && activity.duration && activity.duration > 0;
           if (!isPassivePageStay) {
-            await updateWorkHour(userId, recordedAt, 'web');
+            await updateWorkHour(userId, recordedAt, 'web', count);
           }
           return webActivity.id;
         })

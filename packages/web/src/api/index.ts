@@ -169,6 +169,44 @@ export function fetchOvertimeStats(start?: string, end?: string, userId?: number
   return fetchAPI(`/stats/overtime${query}`);
 }
 
+// 代码活动详情
+export interface CodeActivity {
+  id: number;
+  repoName: string;
+  branch: string;
+  linesAdded: number;
+  linesDeleted: number;
+  filesChanged: number;
+  isCommitted: boolean;
+  commitHash?: string;
+  recordedAt: string;
+}
+
+export interface CodeActivitiesResponse {
+  startDate: string;
+  endDate: string;
+  total: number;
+  summary: {
+    totalLinesAdded: number;
+    totalLinesDeleted: number;
+    totalFilesChanged: number;
+  };
+  repoStats: Record<string, { count: number; linesAdded: number; linesDeleted: number; filesChanged: number }>;
+  branchStats: Array<{ repoName: string; branch: string; count: number; linesAdded: number; linesDeleted: number }>;
+  repos: string[];
+  activities: CodeActivity[];
+}
+
+export function fetchCodeActivities(start?: string, end?: string, repo?: string, userId?: number): Promise<CodeActivitiesResponse> {
+  const params = new URLSearchParams();
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  if (repo) params.set('repo', repo);
+  if (userId) params.set('userId', userId.toString());
+  const query = params.toString() ? `?${params}` : '';
+  return fetchAPI(`/stats/code-activities${query}`);
+}
+
 // 仓库列表
 export interface Repo {
   name: string;

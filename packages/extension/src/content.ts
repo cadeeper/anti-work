@@ -15,10 +15,15 @@ function throttle<T extends (...args: unknown[]) => void>(
 
 // 发送事件到 background script
 function sendEvent(eventType: 'click' | 'scroll' | 'input' | 'focus'): void {
-  chrome.runtime.sendMessage({
-    type: 'TRACK_EVENT',
-    eventType,
-  });
+  try {
+    chrome.runtime.sendMessage({
+      type: 'TRACK_EVENT',
+      eventType,
+    });
+  } catch {
+    // Extension context invalidated (扩展被重载/禁用)
+    // 静默忽略，用户刷新页面后会恢复正常
+  }
 }
 
 // 节流的滚动事件处理器（每30秒最多发送一次）

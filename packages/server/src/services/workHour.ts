@@ -45,7 +45,7 @@ export async function isOvertimeHour(userId: number, date: Date, hour: number): 
 /**
  * 更新工作时段记录
  */
-export async function updateWorkHour(userId: number, recordedAt: Date, type: 'code' | 'web'): Promise<void> {
+export async function updateWorkHour(userId: number, recordedAt: Date, type: 'code' | 'web', count: number = 1): Promise<void> {
   const date = dayjs(recordedAt).format('YYYY-MM-DD');
   const hour = dayjs(recordedAt).hour();
   const isOvertime = await isOvertimeHour(userId, recordedAt, hour);
@@ -59,8 +59,8 @@ export async function updateWorkHour(userId: number, recordedAt: Date, type: 'co
       where: { id: existing.id },
       data: {
         hasActivity: true,
-        codeChanges: type === 'code' ? existing.codeChanges + 1 : existing.codeChanges,
-        webActivities: type === 'web' ? existing.webActivities + 1 : existing.webActivities,
+        codeChanges: type === 'code' ? existing.codeChanges + count : existing.codeChanges,
+        webActivities: type === 'web' ? existing.webActivities + count : existing.webActivities,
       },
     });
   } else {
@@ -70,8 +70,8 @@ export async function updateWorkHour(userId: number, recordedAt: Date, type: 'co
         date,
         hour,
         hasActivity: true,
-        codeChanges: type === 'code' ? 1 : 0,
-        webActivities: type === 'web' ? 1 : 0,
+        codeChanges: type === 'code' ? count : 0,
+        webActivities: type === 'web' ? count : 0,
         isOvertime,
       },
     });

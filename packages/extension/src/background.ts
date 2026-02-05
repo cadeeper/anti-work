@@ -134,7 +134,15 @@ async function flushActivities(): Promise<void> {
 }
 
 /**
- * 添加活动到队列
+ * 生成聚合 key（用于识别可聚合的事件）
+ * 聚合规则：相同 domain + eventType 的事件合并
+ */
+function getAggregationKey(activity: Omit<WebActivity, 'recordedAt'>): string {
+  return `${activity.domain}:${activity.eventType}`;
+}
+
+/**
+ * 添加活动到队列（带聚合）
  */
 async function queueActivity(activity: Omit<WebActivity, 'recordedAt'>): Promise<void> {
   const config = await getConfig();
@@ -151,25 +159,46 @@ async function queueActivity(activity: Omit<WebActivity, 'recordedAt'>): Promise
   }
 
   // 清理 URL（移除参数）并应用脱敏规则
-  const sanitizedActivity: WebActivity = {
-    ...activity,
-    url: sanitizeUrl(cleanUrl(activity.url), config.sanitizePatterns),
-    title: sanitizeTitle(activity.title, config.sanitizePatterns),
-    domain,
-    recordedAt: new Date().toISOString(),
-  };
+  const cleanedUrl = sanitizeUrl(cleanUrl(activity.url), config.sanitizePatterns);
+  const cleanedTitle = sanitizeTitle(activity.title, config.sanitizePatterns);
 
-  activityQueue.push(sanitizedActivity);
-  console.log(`Queued activity: ${domain}`);
+  // 尝试在队列中找到可聚合的事件
+  const aggregationKey = getAggregationKey({ ...activity, domain });
+  const existingIndex = activityQueue.findIndex(
+    (a) => getAggregationKey(a) === aggregationKey
+  );
 
-  // 设置延迟刷新（5秒后批量上报）
+  if (existingIndex !== -1) {
+    // 找到可聚合的事件，更新它
+    const existing = activityQueue[existingIndex];
+    existing.count = (existing.count || 1) + 1;
+    existing.duration = (existing.duration || 0) + (activity.duration || 0);
+    // 保留最新的 URL 和标题
+    existing.url = cleanedUrl;
+    existing.title = cleanedTitle || existing.title;
+    console.log(`Aggregated activity: ${domain} (count: ${existing.count})`);
+  } else {
+    // 没有可聚合的事件，添加新记录
+    const sanitizedActivity: WebActivity = {
+      ...activity,
+      url: cleanedUrl,
+      title: cleanedTitle,
+      domain,
+      count: 1,
+      recordedAt: new Date().toISOString(),
+    };
+    activityQueue.push(sanitizedActivity);
+    console.log(`Queued activity: ${domain}`);
+  }
+
+  // 设置延迟刷新（10秒后批量上报，给更多时间聚合）
   if (flushTimer) {
     clearTimeout(flushTimer);
   }
-  flushTimer = setTimeout(flushActivities, 5000);
+  flushTimer = setTimeout(flushActivities, 10000);
 
-  // 队列超过 50 条时立即上报
-  if (activityQueue.length >= 50) {
+  // 队列超过 30 条时立即上报
+  if (activityQueue.length >= 30) {
     if (flushTimer) {
       clearTimeout(flushTimer);
       flushTimer = null;

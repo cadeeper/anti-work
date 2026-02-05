@@ -369,6 +369,98 @@ export async function statsRoutes(fastify: FastifyInstance) {
     };
   });
 
+  // 代码活动详情（支持日期范围和仓库筛选）
+  fastify.get('/code-activities', async (request: FastifyRequest<{ Querystring: { start?: string; end?: string; repo?: string; userId?: string; limit?: string } }>) => {
+    const userIdFilter = getUserIdFilter(request);
+    const limit = parseInt(request.query.limit || '200');
+    const repoFilter = request.query.repo;
+
+    // 日期范围
+    const startDate = request.query.start
+      ? dayjs(request.query.start).startOf('day')
+      : dayjs().startOf('day');
+    const endDate = request.query.end
+      ? dayjs(request.query.end).endOf('day')
+      : dayjs().endOf('day');
+
+    const whereUser = userIdFilter ? { userId: userIdFilter } : {};
+    const whereRepo = repoFilter ? { repoName: repoFilter } : {};
+
+    const activities = await prisma.codeChange.findMany({
+      where: {
+        recordedAt: { gte: startDate.toDate(), lte: endDate.toDate() },
+        ...whereUser,
+        ...whereRepo,
+      },
+      orderBy: { recordedAt: 'desc' },
+      take: limit,
+    });
+
+    // 按仓库统计
+    const repoStats = activities.reduce((acc, a) => {
+      if (!acc[a.repoName]) {
+        acc[a.repoName] = { count: 0, linesAdded: 0, linesDeleted: 0, filesChanged: 0 };
+      }
+      acc[a.repoName].count += 1;
+      acc[a.repoName].linesAdded += a.linesAdded;
+      acc[a.repoName].linesDeleted += a.linesDeleted;
+      acc[a.repoName].filesChanged += a.filesChanged;
+      return acc;
+    }, {} as Record<string, { count: number; linesAdded: number; linesDeleted: number; filesChanged: number }>);
+
+    // 按分支统计
+    const branchStats = activities.reduce((acc, a) => {
+      const key = `${a.repoName}:${a.branch}`;
+      if (!acc[key]) {
+        acc[key] = { repoName: a.repoName, branch: a.branch, count: 0, linesAdded: 0, linesDeleted: 0 };
+      }
+      acc[key].count += 1;
+      acc[key].linesAdded += a.linesAdded;
+      acc[key].linesDeleted += a.linesDeleted;
+      return acc;
+    }, {} as Record<string, { repoName: string; branch: string; count: number; linesAdded: number; linesDeleted: number }>);
+
+    // 获取所有仓库列表（用于筛选）
+    const allRepos = await prisma.codeChange.findMany({
+      where: {
+        recordedAt: { gte: startDate.toDate(), lte: endDate.toDate() },
+        ...whereUser,
+      },
+      select: { repoName: true },
+      distinct: ['repoName'],
+    });
+
+    // 统计总量
+    const totalLinesAdded = activities.reduce((sum, a) => sum + a.linesAdded, 0);
+    const totalLinesDeleted = activities.reduce((sum, a) => sum + a.linesDeleted, 0);
+    const totalFilesChanged = activities.reduce((sum, a) => sum + a.filesChanged, 0);
+
+    return {
+      startDate: startDate.format('YYYY-MM-DD'),
+      endDate: endDate.format('YYYY-MM-DD'),
+      total: activities.length,
+      summary: {
+        totalLinesAdded,
+        totalLinesDeleted,
+        totalFilesChanged,
+      },
+      repoStats,
+      branchStats: Object.values(branchStats),
+      repos: allRepos.map(r => r.repoName).sort(),
+      activities: activities.map(a => ({
+        id: a.id,
+        repoName: a.repoName,
+        branch: a.branch,
+        linesAdded: a.linesAdded,
+        linesDeleted: a.linesDeleted,
+        filesChanged: a.filesChanged,
+        isCommitted: a.isCommitted,
+        commitHash: a.commitHash,
+        recordedAt: a.recordedAt,
+      })),
+    };
+  });
+
   // 加班统计
   fastify.get('/overtime', async (request: FastifyRequest<{ Querystring: { start?: string; end?: string; userId?: string } }>) => {
     const userIdFilter = getUserIdFilter(request);

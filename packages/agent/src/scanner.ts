@@ -20,11 +20,19 @@ interface RepoChange {
 // 状态文件路径
 const STATE_FILE = join(os.homedir(), '.anti-work', 'scanner-state.json');
 
+interface UncommittedStats {
+  linesAdded: number;
+  linesDeleted: number;
+  filesChanged: number;
+}
+
 interface ScannerState {
   // 每个仓库上次扫描到的最新 commit hash
   lastCommitHashes: Record<string, string>;
   // 每个仓库上次的 diff hash（用于检测未提交变更是否真的变化了）
   lastDiffHashes: Record<string, string>;
+  // 每个仓库上次的未提交变更统计（用于计算增量）
+  lastUncommittedStats: Record<string, UncommittedStats>;
 }
 
 /**
@@ -39,7 +47,7 @@ function loadState(): ScannerState {
   } catch {
     // 忽略错误
   }
-  return { lastCommitHashes: {}, lastDiffHashes: {} };
+  return { lastCommitHashes: {}, lastDiffHashes: {}, lastUncommittedStats: {} };
 }
 
 /**
@@ -90,7 +98,7 @@ async function findGitRepos(basePath: string): Promise<string[]> {
 }
 
 /**
- * 获取仓库的未提交变更统计（只有当 diff 内容变化时才返回）
+ * 获取仓库的未提交变更统计（增量模式：只上报相比上次的正向增量）
  */
 async function getUncommittedChanges(
   git: SimpleGit,
@@ -103,9 +111,13 @@ async function getUncommittedChanges(
     // 获取当前 diff 的原始输出
     const diffOutput = await git.diff(['HEAD', '--stat']);
 
+    // 获取上次的统计数据
+    const lastStats = state.lastUncommittedStats[repoPath] || { linesAdded: 0, linesDeleted: 0, filesChanged: 0 };
+
     if (!diffOutput.trim()) {
-      // 没有未提交变更，清除上次的 diff hash
+      // 没有未提交变更，清除状态
       delete state.lastDiffHashes[repoPath];
+      delete state.lastUncommittedStats[repoPath];
       return null;
     }
 
@@ -120,17 +132,33 @@ async function getUncommittedChanges(
 
     // diff 有变化，解析统计信息
     const diffSummary = await git.diffSummary(['HEAD']);
+    const currentStats: UncommittedStats = {
+      linesAdded: diffSummary.insertions,
+      linesDeleted: diffSummary.deletions,
+      filesChanged: diffSummary.files.length,
+    };
 
-    // 更新状态
+    // 计算增量（只保留正向增量）
+    const deltaAdded = Math.max(0, currentStats.linesAdded - lastStats.linesAdded);
+    const deltaDeleted = Math.max(0, currentStats.linesDeleted - lastStats.linesDeleted);
+    const deltaFiles = Math.max(0, currentStats.filesChanged - lastStats.filesChanged);
+
+    // 更新状态（无论是否上报都要更新）
     state.lastDiffHashes[repoPath] = currentDiffHash;
+    state.lastUncommittedStats[repoPath] = currentStats;
+
+    // 只有正向增量时才上报
+    if (deltaAdded === 0 && deltaDeleted === 0) {
+      return null;
+    }
 
     return {
       repoPath,
       repoName: basename(repoPath),
       branch: branch.trim(),
-      linesAdded: diffSummary.insertions,
-      linesDeleted: diffSummary.deletions,
-      filesChanged: diffSummary.files.length,
+      linesAdded: deltaAdded,
+      linesDeleted: deltaDeleted,
+      filesChanged: deltaFiles,
       isCommitted: false,
     };
   } catch {
