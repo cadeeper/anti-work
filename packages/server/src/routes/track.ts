@@ -87,7 +87,11 @@ export async function trackRoutes(fastify: FastifyInstance) {
       });
 
       // 更新工作时段
-      await updateWorkHour(userId, recordedAt, 'web');
+      // pageview 带 duration 表示纯页面停留，不算有效操作
+      const isPassivePageStay = body.eventType === 'pageview' && body.duration && body.duration > 0;
+      if (!isPassivePageStay) {
+        await updateWorkHour(userId, recordedAt, 'web');
+      }
 
       return { success: true, id: webActivity.id };
     } catch (error) {
@@ -120,7 +124,11 @@ export async function trackRoutes(fastify: FastifyInstance) {
             },
           });
 
-          await updateWorkHour(userId, recordedAt, 'web');
+          // pageview 带 duration 表示纯页面停留，不算有效操作
+          const isPassivePageStay = activity.eventType === 'pageview' && activity.duration && activity.duration > 0;
+          if (!isPassivePageStay) {
+            await updateWorkHour(userId, recordedAt, 'web');
+          }
           return webActivity.id;
         })
       );
