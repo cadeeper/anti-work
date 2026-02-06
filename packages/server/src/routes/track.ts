@@ -6,7 +6,7 @@ import { uuidRequired } from '../middleware/auth.js';
 
 // 代码变更上报 Schema
 const codeChangeSchema = z.object({
-  repoPath: z.string(),
+  repoPath: z.string().optional(), // 可选，服务端不存储完整路径
   repoName: z.string(),
   branch: z.string(),
   linesAdded: z.number().int().min(0),
@@ -44,7 +44,8 @@ export async function trackRoutes(fastify: FastifyInstance) {
       const codeChange = await prisma.codeChange.create({
         data: {
           userId,
-          repoPath: body.repoPath,
+          // 安全措施：只存储仓库名称，不存储完整路径（避免泄露用户本地目录结构）
+          repoPath: body.repoName, // 使用 repoName 替代完整路径
           repoName: body.repoName,
           branch: body.branch,
           linesAdded: body.linesAdded,

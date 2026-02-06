@@ -1,4 +1,4 @@
-import { WebActivity, DEFAULT_CONFIG, TrackerConfig } from './types.js';
+import { WebActivity, DEFAULT_CONFIG, TrackerConfig, SensitiveConfig, DEFAULT_SANITIZE_PATTERNS } from './types.js';
 import { extractDomain, cleanUrl, shouldTrackDomain, sanitizeUrl, sanitizeTitle } from './utils.js';
 
 // 活动队列，用于批量上报
@@ -28,10 +28,14 @@ async function fetchServerConfig(serverUrl: string, userUuid: string): Promise<P
 
     if (response.ok) {
       const data = await response.json();
+      // 合并服务端配置和默认脱敏规则
+      const serverPatterns = data.sanitizePatterns || [];
+      const mergedPatterns = [...new Set([...DEFAULT_SANITIZE_PATTERNS, ...serverPatterns])];
+      
       return {
         domainWhitelist: data.domainWhitelist || [],
         domainBlacklist: data.domainBlacklist || [],
-        sanitizePatterns: data.sanitizePatterns || [],
+        sanitizePatterns: mergedPatterns,
       };
     }
   } catch (e) {
@@ -42,6 +46,7 @@ async function fetchServerConfig(serverUrl: string, userUuid: string): Promise<P
 
 /**
  * 获取配置（带服务端同步）
+ * 从 local storage 获取普通配置，从 session storage 获取敏感信息
  */
 async function getConfig(): Promise<TrackerConfig> {
   const now = Date.now();
@@ -51,9 +56,24 @@ async function getConfig(): Promise<TrackerConfig> {
     return cachedConfig;
   }
 
-  // 获取本地配置
-  const result = await chrome.storage.local.get('config');
-  const localConfig: TrackerConfig = { ...DEFAULT_CONFIG, ...result.config };
+  // 获取本地配置和敏感信息
+  const [localResult, sessionResult] = await Promise.all([
+    chrome.storage.local.get('config'),
+    chrome.storage.session.get('sensitive'),
+  ]);
+  
+  const localConfig: TrackerConfig = { ...DEFAULT_CONFIG, ...localResult.config };
+  const sensitiveConfig = sessionResult.sensitive as SensitiveConfig | undefined;
+  
+  // 合并敏感信息（session storage 优先）
+  if (sensitiveConfig?.userUuid) {
+    localConfig.userUuid = sensitiveConfig.userUuid;
+  }
+  
+  // 确保默认脱敏规则始终生效
+  localConfig.sanitizePatterns = [
+    ...new Set([...DEFAULT_SANITIZE_PATTERNS, ...(localConfig.sanitizePatterns || [])])
+  ];
 
   // 尝试从服务端同步配置
   if (localConfig.userUuid && localConfig.serverUrl) {
@@ -296,14 +316,22 @@ setInterval(flushActivities, 30000);
 chrome.runtime.onInstalled.addListener(async () => {
   const result = await chrome.storage.local.get('config');
   if (!result.config) {
-    await chrome.storage.local.set({ config: DEFAULT_CONFIG });
+    // 初始化时不存储 userUuid 到 local storage
+    const { userUuid, ...configWithoutUuid } = DEFAULT_CONFIG;
+    await chrome.storage.local.set({ config: configWithoutUuid });
   }
+  
+  // 设置 session storage 访问级别（允许 service worker 访问）
+  await chrome.storage.session.setAccessLevel({
+    accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS'
+  });
+  
   console.log('Anti-Work Tracker installed');
 });
 
 // 监听 storage 变化
 chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'local' && changes.config) {
+  if ((namespace === 'local' && changes.config) || (namespace === 'session' && changes.sensitive)) {
     clearConfigCache();
     console.log('Config updated from storage, will re-sync from server');
   }

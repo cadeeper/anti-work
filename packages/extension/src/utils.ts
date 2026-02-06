@@ -1,19 +1,60 @@
-import { TrackerConfig, DEFAULT_CONFIG } from './types.js';
+import { TrackerConfig, SensitiveConfig, DEFAULT_CONFIG } from './types.js';
 
 /**
  * 获取配置（直接从 storage 读取）
+ * 普通配置从 local storage 读取，敏感信息从 session storage 读取
  */
 export async function getConfig(): Promise<TrackerConfig> {
-  const result = await chrome.storage.local.get('config');
-  return { ...DEFAULT_CONFIG, ...result.config };
+  const [localResult, sessionResult] = await Promise.all([
+    chrome.storage.local.get('config'),
+    chrome.storage.session.get('sensitive'),
+  ]);
+  
+  const localConfig = { ...DEFAULT_CONFIG, ...localResult.config };
+  const sensitiveConfig = sessionResult.sensitive as SensitiveConfig | undefined;
+  
+  // 合并敏感信息
+  if (sensitiveConfig?.userUuid) {
+    localConfig.userUuid = sensitiveConfig.userUuid;
+  }
+  
+  return localConfig;
 }
 
 /**
  * 保存配置
+ * 敏感信息（userUuid）存储到 session storage，其他存储到 local storage
  */
 export async function saveConfig(config: Partial<TrackerConfig>): Promise<void> {
   const current = await getConfig();
-  await chrome.storage.local.set({ config: { ...current, ...config } });
+  
+  // 分离敏感信息
+  const { userUuid, ...nonSensitiveConfig } = config;
+  
+  // 保存非敏感配置到 local storage
+  const newLocalConfig = { ...current, ...nonSensitiveConfig };
+  delete (newLocalConfig as Partial<TrackerConfig>).userUuid; // 不在 local 中存储 uuid
+  await chrome.storage.local.set({ config: newLocalConfig });
+  
+  // 保存敏感信息到 session storage
+  if (userUuid !== undefined) {
+    await chrome.storage.session.set({ sensitive: { userUuid } });
+  }
+}
+
+/**
+ * 获取敏感配置（仅从 session storage）
+ */
+export async function getSensitiveConfig(): Promise<SensitiveConfig | null> {
+  const result = await chrome.storage.session.get('sensitive');
+  return result.sensitive || null;
+}
+
+/**
+ * 保存敏感配置到 session storage
+ */
+export async function saveSensitiveConfig(config: SensitiveConfig): Promise<void> {
+  await chrome.storage.session.set({ sensitive: config });
 }
 
 /**

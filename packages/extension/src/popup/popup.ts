@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, TrackerConfig } from '../types.js';
+import { DEFAULT_CONFIG, TrackerConfig, SensitiveConfig } from '../types.js';
 
 const enableToggle = document.getElementById('enableToggle') as HTMLInputElement;
 const serverStatus = document.getElementById('serverStatus') as HTMLSpanElement;
@@ -8,15 +8,41 @@ const saveBtn = document.getElementById('saveBtn') as HTMLButtonElement;
 const dashboardLink = document.getElementById('dashboardLink') as HTMLAnchorElement;
 
 // 直接从 storage 获取配置（不使用缓存）
+// 普通配置从 local storage，敏感信息从 session storage
 async function getLocalConfig(): Promise<TrackerConfig> {
-  const result = await chrome.storage.local.get('config');
-  return { ...DEFAULT_CONFIG, ...result.config };
+  const [localResult, sessionResult] = await Promise.all([
+    chrome.storage.local.get('config'),
+    chrome.storage.session.get('sensitive'),
+  ]);
+  
+  const config = { ...DEFAULT_CONFIG, ...localResult.config };
+  const sensitive = sessionResult.sensitive as SensitiveConfig | undefined;
+  
+  // 合并敏感信息
+  if (sensitive?.userUuid) {
+    config.userUuid = sensitive.userUuid;
+  }
+  
+  return config;
 }
 
 // 保存配置到 storage
+// 敏感信息（userUuid）存储到 session storage，其他存储到 local storage
 async function saveLocalConfig(config: Partial<TrackerConfig>): Promise<void> {
   const current = await getLocalConfig();
-  await chrome.storage.local.set({ config: { ...current, ...config } });
+  
+  // 分离敏感信息
+  const { userUuid: uuid, ...nonSensitiveConfig } = config;
+  
+  // 保存非敏感配置到 local storage（不包含 userUuid）
+  const newLocalConfig = { ...current, ...nonSensitiveConfig };
+  delete (newLocalConfig as Partial<TrackerConfig>).userUuid;
+  await chrome.storage.local.set({ config: newLocalConfig });
+  
+  // 保存敏感信息到 session storage
+  if (uuid !== undefined) {
+    await chrome.storage.session.set({ sensitive: { userUuid: uuid } });
+  }
 }
 
 // 检查服务器连接和 UUID 有效性

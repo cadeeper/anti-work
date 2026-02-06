@@ -7,14 +7,18 @@ import { createHash } from 'crypto';
 import os from 'os';
 
 interface RepoChange {
-  repoPath: string;
-  repoName: string;
+  repoName: string;  // 仅发送仓库名称，不发送完整路径（安全考虑）
   branch: string;
   linesAdded: number;
   linesDeleted: number;
   filesChanged: number;
   isCommitted: boolean;
   commitHash?: string;
+}
+
+// 内部使用，包含完整路径用于扫描状态管理
+interface InternalRepoChange extends RepoChange {
+  _repoPath: string;  // 仅内部使用，不上报
 }
 
 // 状态文件路径
@@ -110,7 +114,7 @@ async function getUncommittedChanges(
   git: SimpleGit,
   repoPath: string,
   state: ScannerState
-): Promise<RepoChange | null> {
+): Promise<InternalRepoChange | null> {
   try {
     const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
 
@@ -159,8 +163,8 @@ async function getUncommittedChanges(
     }
 
     return {
-      repoPath,
-      repoName: basename(repoPath),
+      _repoPath: repoPath,  // 仅内部使用
+      repoName: basename(repoPath),  // 只发送仓库名称
       branch: branch.trim(),
       linesAdded: deltaAdded,
       linesDeleted: deltaDeleted,
@@ -179,8 +183,8 @@ async function getNewCommits(
   git: SimpleGit,
   repoPath: string,
   state: ScannerState
-): Promise<RepoChange[]> {
-  const changes: RepoChange[] = [];
+): Promise<InternalRepoChange[]> {
+  const changes: InternalRepoChange[] = [];
 
   try {
     const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
@@ -216,8 +220,8 @@ async function getNewCommits(
 
         if (stats.filesChanged > 0) {
           changes.push({
-            repoPath,
-            repoName: basename(repoPath),
+            _repoPath: repoPath,  // 仅内部使用
+            repoName: basename(repoPath),  // 只发送仓库名称
             branch: branch.trim(),
             linesAdded: stats.linesAdded,
             linesDeleted: stats.linesDeleted,
@@ -268,10 +272,11 @@ function parseGitStats(output: string): {
 
 /**
  * 扫描所有仓库
+ * 返回的 RepoChange 不包含完整路径，只包含仓库名称
  */
 export async function scanRepositories(): Promise<RepoChange[]> {
   const config = getConfig();
-  const allChanges: RepoChange[] = [];
+  const allChanges: InternalRepoChange[] = [];
   const state = loadState();
 
   for (const watchPath of config.watchPaths) {
@@ -318,5 +323,6 @@ export async function scanRepositories(): Promise<RepoChange[]> {
   // 保存状态
   saveState(state);
 
-  return allChanges;
+  // 移除内部字段，只返回安全的数据（不包含完整路径）
+  return allChanges.map(({ _repoPath, ...change }) => change);
 }
