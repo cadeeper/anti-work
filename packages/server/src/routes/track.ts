@@ -90,9 +90,9 @@ export async function trackRoutes(fastify: FastifyInstance) {
       });
 
       // 更新工作时段
-      // pageview 带 duration 表示纯页面停留，不算有效操作
-      const isPassivePageStay = body.eventType === 'pageview' && body.duration && body.duration > 0;
-      if (!isPassivePageStay) {
+      // 只有交互事件才算有效操作，pageview 不算工作
+      const isActiveInteraction = body.eventType !== 'pageview';
+      if (isActiveInteraction) {
         await updateWorkHour(userId, recordedAt, 'web', count);
       }
 
@@ -129,9 +129,9 @@ export async function trackRoutes(fastify: FastifyInstance) {
             },
           });
 
-          // pageview 带 duration 表示纯页面停留，不算有效操作
-          const isPassivePageStay = activity.eventType === 'pageview' && activity.duration && activity.duration > 0;
-          if (!isPassivePageStay) {
+          // 只有交互事件才算有效操作，pageview 不算工作
+          const isActiveInteraction = activity.eventType !== 'pageview';
+          if (isActiveInteraction) {
             await updateWorkHour(userId, recordedAt, 'web', count);
           }
           return webActivity.id;

@@ -42,7 +42,13 @@ function loadState(): ScannerState {
   try {
     if (existsSync(STATE_FILE)) {
       const content = readFileSync(STATE_FILE, 'utf-8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      // 确保所有字段都存在（兼容旧版本状态文件）
+      return {
+        lastCommitHashes: parsed.lastCommitHashes || {},
+        lastDiffHashes: parsed.lastDiffHashes || {},
+        lastUncommittedStats: parsed.lastUncommittedStats || {},
+      };
     }
   } catch {
     // 忽略错误
